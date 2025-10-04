@@ -30,6 +30,7 @@ import torch
 import torch.utils
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.errors import RevisionNotFoundError
+from typing import Any
 
 from lerobot.datasets.compute_stats import aggregate_stats, compute_episode_stats
 from lerobot.datasets.image_writer import AsyncImageWriter, write_image
@@ -474,6 +475,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         download_videos: bool = True,
         video_backend: str | None = None,
         batch_encoding_size: int = 1,
+        video_kwargs: dict[str, Any] = {}
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -596,6 +598,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.tolerance_s = tolerance_s
         self.revision = revision if revision else CODEBASE_VERSION
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
+        self.video_kwargs = video_kwargs
         self.delta_indices = None
         self.batch_encoding_size = batch_encoding_size
         self.episodes_since_last_encoding = 0
@@ -1155,7 +1158,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
     def _save_episode_video(self, video_key: str, episode_index: int) -> dict:
         # Encode episode frames into a temporary video
-        ep_path = self._encode_temporary_episode_video(video_key, episode_index)
+        video_kwargs = self.video_kwargs
+        ep_path = self._encode_temporary_episode_video(video_key, episode_index, **video_kwargs)
         ep_size_in_mb = get_video_size_in_mb(ep_path)
         ep_duration_in_s = get_video_duration_in_s(ep_path)
 
@@ -1258,7 +1262,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         if self.image_writer is not None:
             self.image_writer.wait_until_done()
 
-    def _encode_temporary_episode_video(self, video_key: str, episode_index: int) -> Path:
+    def _encode_temporary_episode_video(self, video_key: str, episode_index: int, **video_kwargs) -> Path:
         """
         Use ffmpeg to convert frames stored as png into mp4 videos.
         Note: `encode_video_frames` is a blocking call. Making it asynchronous shouldn't speedup encoding,
@@ -1266,7 +1270,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         """
         temp_path = Path(tempfile.mkdtemp(dir=self.root)) / f"{video_key}_{episode_index:03d}.mp4"
         img_dir = self._get_image_file_dir(episode_index, video_key)
-        encode_video_frames(img_dir, temp_path, self.fps, overwrite=True)
+        encode_video_frames(img_dir, temp_path, self.fps, overwrite=True, **video_kwargs)
         shutil.rmtree(img_dir)
         return temp_path
 
